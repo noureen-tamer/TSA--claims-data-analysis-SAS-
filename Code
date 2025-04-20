@@ -1,0 +1,98 @@
+*create lib named tsa*;
+libname tsa "~";
+
+proc import datafile='/home/u64167982/EPG1V2/data/TSAClaims2002_2017.csv' 
+		DBMS=csv out=tsa.Claims_cleaned replace; *replace the file if it exists*;
+	guessingrows=max;
+run;
+
+** explore data;
+
+proc print data=tsa.Claims_cleaned (obs=20);
+run;
+
+** sees the freq of the needed coloumns;
+
+proc freq data=tsa.Claims_cleaned;
+	table Claim_Site Disposition Claim_Type Date_Received Incident_Date/nocum 
+		nopercent;
+run;
+
+**remove all duplicate rows;
+
+proc sort data=tsa.Claims_cleaned NODUPKEY;
+	by _ALL_;
+run;
+
+*Strong recommendation : after writing the code use code formatter *;
+
+data tsa.claims_cleaned2;
+	*this is the place where the data is cleaned*;
+	set tsa.claims_cleaned;
+	*from which the data is brought*;
+	
+	*the missing values could be - or '' empty spaces*;
+	IF Claim_Site IN ('-', '') THEN
+		Claim_Site='Unknown';
+
+	IF Disposition IN ('-', '') THEN
+		Disposition='Unknown';
+
+	if Claim_Type in ('-', '') then
+		Claim_type="unknown";
+	*Change the col using builtin functions*;
+	
+	State=UPCASE(State);
+	StateName=PROPCASE(StateName);
+	
+	*Drop the unnecessary cols*;
+	drop County City;
+
+	IF year(Incident_Date) < 2002 OR year(Incident_Date) > 2017 OR 
+		year(Date_Received) < 2002 OR year(Date_Received) > 2017 OR 
+		Date_Received < Incident_Date OR Date_Received=. OR Incident_Date=.
+   THEN
+			Date_Issues='Needs Review';
+	*formatte all without the underscore*;
+   LABEL 
+        Airport_Code = 'Airport Code'
+        Airport_Name = 'Airport Name' 
+        Claim_Number = 'Claim Number'
+        Claim_Site = 'Claim Site'
+        Claim_Type = 'Claim Type' 
+        Close_Amount = 'Close Amount'
+        Date_Issues = 'Date Issues' 
+        Date_Received = 'Date Received'
+        Incident_Date = 'Incident Date' 
+        Item_Category = 'Item Category';
+	format Incident_Date Date_Received date9. Close_Amount dollar20.2;
+run;
+
+PROC CONTENTS DATA=tsa.claims_cleaned2;
+RUN;
+
+proc print data=tsa.claims_cleaned2 (obs=10);
+
+proc freq data=tsa.claims_cleaned2 ;
+	table Claim_Site Disposition Claim_Type Incident_Date Date_Issues /nocum nopercent;
+run;
+
+ODS pdf file = "~/EPG1V2/data/class_report.pdf" style = Statistical pdftoc = 1;
+ODS noproctitle;
+
+%let DesiredState = California; *The selected country for the analysis*;
+
+ODS proclabel "&DesiredState Claims Overview";
+title "&DesiredState: Claim Types, Claim Sites and Disposition";
+proc freq data = tsa.claims_cleaned2;
+   table Claim_Type Claim_Site Disposition / nocum nopercent;
+   where Date_Issues = '' AND StateName = "&DesiredState";
+run;
+
+ODS proclabel " Close Amount of &DesiredState";
+title "&DesiredState: Close_Amount Statistics";
+proc means data = tsa.claims_cleaned2 MAXDEC = 0 mean min max sum;
+   var Close_Amount; *the name of new col*;
+   where Date_Issues = '' AND StateName = "&DesiredState";
+run;
+ODS pdf close;
